@@ -30,22 +30,22 @@ class AgentState(TypedDict):
     iterations: int           # Safety counter
 
 # 4. Model Initialization
-# Architect: Gemini Pro for high-level logic
-architect = ChatGoogleGenerativeAI(model="gemini-1.5-pro", temperature=0.2)
-
-# Programmer: Gemini Flash for fast execution
-programmer = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0).bind_tools(file_tools)
-
-# --- NODES ---
+architect = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.2)
+programmer = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0).bind_tools(file_tools)
 
 def architect_node(state: AgentState):
     """Lead Architect providing code and reasoning."""
+    # Ensure iteration count exists
     it_count = state.get("iterations", 0)
     
-    # Check if we should force stop due to safety limits
+    # 1. Safety Check: Stop if we hit the limit discussed earlier
     if it_count >= MAX_ITERATIONS:
-        return {"next_instruction": "TERMINATE", "history": state['history'] + ["Safety: Max iterations reached."]}
+        return {
+            "next_instruction": "TERMINATE", 
+            "history": state['history'] + ["Safety: Max iterations reached."]
+        }
 
+    # 2. Prompting with established English-first structure
     prompt = f"""You are a Senior Java Architect.
     Objective: {state['task']}
     Current History: {state['history']}
@@ -56,14 +56,23 @@ def architect_node(state: AgentState):
     
     If the project is complete, reply ONLY with 'TERMINATE'."""
     
+    # 3. Model Invocation
     response = architect.invoke(prompt)
     content = response.content
     
-    # Logic to separate reasoning for the final report
+    # 4. Robust Parsing Logic for report.txt
     reasoning = "N/A"
     if "REASONING:" in content and "CODE:" in content:
-        reasoning = content.split("CODE:")[0].replace("REASONING:", "").strip()
+        # Split safely based on your format
+        parts = content.split("CODE:")
+        reasoning = parts[0].replace("REASONING:", "").strip()
+    elif "TERMINATE" in content.upper():
+        reasoning = "Project completed successfully."
+    else:
+        # Fallback if the model misses the 'CODE:' tag
+        reasoning = "Automated reasoning extraction failed; check history."
 
+    # 5. Return updated state to LangGraph
     return {
         "next_instruction": content,
         "history": state['history'] + [f"Iteration {it_count}: {content}"],
